@@ -6,7 +6,7 @@ use tonic::async_trait;
 use tonic_example::echo_server::{Echo, EchoServer};
 use tonic_example::{EchoReply, EchoRequest};
 
-pub struct MyEcho;
+struct MyEcho;
 
 #[async_trait]
 impl Echo for MyEcho {

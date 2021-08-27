@@ -145,42 +145,6 @@ where
     }
 }
 
-enum HybridError<WebError, GrpcError> {
-    Web(WebError),
-    Grpc(GrpcError),
-}
-
-impl<WebError, GrpcError> std::fmt::Display for HybridError<WebError, GrpcError>
-where
-    WebError: std::fmt::Display,
-    GrpcError: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Web(a) => std::fmt::Display::fmt(a, f),
-            Self::Grpc(b) => std::fmt::Display::fmt(b, f),
-        }
-    }
-}
-
-impl<WebError, GrpcError> std::fmt::Debug for HybridError<WebError, GrpcError>
-where
-    WebError: std::fmt::Debug,
-    GrpcError: std::fmt::Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Web(a) => std::fmt::Debug::fmt(a, f),
-            Self::Grpc(b) => std::fmt::Debug::fmt(b, f),
-        }
-    }
-}
-
-impl<WebError: std::error::Error, GrpcError: std::error::Error> std::error::Error
-    for HybridError<WebError, GrpcError>
-{
-}
-
 enum HybridBody<WebBody, GrpcBody> {
     Web(WebBody),
     Grpc(GrpcBody),
@@ -190,9 +154,11 @@ impl<WebBody, GrpcBody> HttpBody for HybridBody<WebBody, GrpcBody>
 where
     WebBody: HttpBody + Send + Unpin,
     GrpcBody: HttpBody<Data = WebBody::Data> + Send + Unpin,
+    WebBody::Error: std::error::Error + Send + Sync + 'static,
+    GrpcBody::Error: std::error::Error + Send + Sync + 'static,
 {
     type Data = WebBody::Data;
-    type Error = HybridError<WebBody::Error, GrpcBody::Error>;
+    type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
     fn is_end_stream(&self) -> bool {
         match self {
@@ -206,8 +172,8 @@ where
         cx: &mut std::task::Context,
     ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
         match self.get_mut() {
-            HybridBody::Web(b) => Pin::new(b).poll_data(cx).map_err(HybridError::Web),
-            HybridBody::Grpc(b) => Pin::new(b).poll_data(cx).map_err(HybridError::Grpc),
+            HybridBody::Web(b) => Pin::new(b).poll_data(cx).map_err(|e| e.into()),
+            HybridBody::Grpc(b) => Pin::new(b).poll_data(cx).map_err(|e| e.into()),
         }
     }
 
@@ -216,8 +182,8 @@ where
         cx: &mut std::task::Context,
     ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
         match self.get_mut() {
-            HybridBody::Web(b) => Pin::new(b).poll_trailers(cx).map_err(HybridError::Web),
-            HybridBody::Grpc(b) => Pin::new(b).poll_trailers(cx).map_err(HybridError::Grpc),
+            HybridBody::Web(b) => Pin::new(b).poll_trailers(cx).map_err(|e| e.into()),
+            HybridBody::Grpc(b) => Pin::new(b).poll_trailers(cx).map_err(|e| e.into()),
         }
     }
 }

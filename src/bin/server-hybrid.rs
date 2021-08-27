@@ -4,12 +4,12 @@ use std::pin::Pin;
 use std::task::Poll;
 
 use hyper::HeaderMap;
-use hyper::{Body, Request, Response, body::HttpBody};
+use hyper::{body::HttpBody, Body, Request, Response};
+use pin_project::pin_project;
 use tonic::async_trait;
 use tonic_example::echo_server::{Echo, EchoServer};
 use tonic_example::{EchoReply, EchoRequest};
 use tower::Service;
-use pin_project::pin_project;
 
 struct MyEcho;
 
@@ -29,7 +29,8 @@ impl Echo for MyEcho {
 async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
 
-    let axum_service = axum::Router::new().route("/", axum::handler::get(|| async { "Hello world!" }));
+    let axum_service =
+        axum::Router::new().route("/", axum::handler::get(|| async { "Hello world!" }));
 
     let grpc_service = tonic::transport::Server::builder()
         .add_service(EchoServer::new(MyEcho))
@@ -44,12 +45,8 @@ async fn main() {
     }
 }
 
-fn hybrid<MakeWeb, Grpc>(make_web: MakeWeb, grpc: Grpc) -> HybridMakeService<MakeWeb, Grpc>
-{
-    HybridMakeService {
-        make_web,
-        grpc,
-    }
+fn hybrid<MakeWeb, Grpc>(make_web: MakeWeb, grpc: Grpc) -> HybridMakeService<MakeWeb, Grpc> {
+    HybridMakeService { make_web, grpc }
 }
 
 struct HybridMakeService<MakeWeb, Grpc> {
@@ -66,7 +63,10 @@ where
     type Error = MakeWeb::Error;
     type Future = HybridMakeServiceFuture<MakeWeb::Future, Grpc>;
 
-    fn poll_ready(&mut self, cx: &mut std::task::Context) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
         self.make_web.poll_ready(cx)
     }
 
@@ -87,7 +87,7 @@ struct HybridMakeServiceFuture<WebFuture, Grpc> {
 
 impl<WebFuture, Web, WebError, Grpc> Future for HybridMakeServiceFuture<WebFuture, Grpc>
 where
-    WebFuture: Future<Output = Result<Web, WebError>>
+    WebFuture: Future<Output = Result<Web, WebError>>,
 {
     type Output = Result<HybridService<Web, Grpc>, WebError>;
 
@@ -99,7 +99,7 @@ where
             Poll::Ready(Ok(web)) => Poll::Ready(Ok(HybridService {
                 web,
                 grpc: this.grpc.take().expect("Cannot poll twice!"),
-            }))
+            })),
         }
     }
 }
@@ -120,13 +120,16 @@ where
     type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
     type Future = HybridFuture<Web::Future, Grpc::Future>;
 
-    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
         match self.web.poll_ready(cx) {
             Poll::Ready(Ok(())) => match self.grpc.poll_ready(cx) {
                 Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
                 Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
                 Poll::Pending => Poll::Pending,
-            }
+            },
             Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
             Poll::Pending => Poll::Pending,
         }
@@ -141,15 +144,15 @@ where
     }
 }
 
-enum HybridError<A, B> {
-    Web(A),
-    Grpc(B),
+enum HybridError<WebError, GrpcError> {
+    Web(WebError),
+    Grpc(GrpcError),
 }
 
-impl<A, B> std::fmt::Display for HybridError<A, B>
+impl<WebError, GrpcError> std::fmt::Display for HybridError<WebError, GrpcError>
 where
-    A: std::fmt::Display,
-    B: std::fmt::Display,
+    WebError: std::fmt::Display,
+    GrpcError: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -159,10 +162,10 @@ where
     }
 }
 
-impl<A, B> std::fmt::Debug for HybridError<A, B>
+impl<WebError, GrpcError> std::fmt::Debug for HybridError<WebError, GrpcError>
 where
-    A: std::fmt::Debug,
-    B: std::fmt::Debug,
+    WebError: std::fmt::Debug,
+    GrpcError: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -172,20 +175,23 @@ where
     }
 }
 
-impl<A: std::error::Error, B: std::error::Error> std::error::Error for HybridError<A, B> {}
-
-enum HybridBody<A, B> {
-    Web(A),
-    Grpc(B),
+impl<WebError: std::error::Error, GrpcError: std::error::Error> std::error::Error
+    for HybridError<WebError, GrpcError>
+{
 }
 
-impl<A, B> HttpBody for HybridBody<A, B>
+enum HybridBody<WebBody, GrpcBody> {
+    Web(WebBody),
+    Grpc(GrpcBody),
+}
+
+impl<WebBody, GrpcBody> HttpBody for HybridBody<WebBody, GrpcBody>
 where
-    A: HttpBody + Send + Unpin,
-    B: HttpBody<Data = A::Data> + Send + Unpin,
+    WebBody: HttpBody + Send + Unpin,
+    GrpcBody: HttpBody<Data = WebBody::Data> + Send + Unpin,
 {
-    type Data = A::Data;
-    type Error = HybridError<A::Error, B::Error>;
+    type Data = WebBody::Data;
+    type Error = HybridError<WebBody::Error, GrpcBody::Error>;
 
     fn is_end_stream(&self) -> bool {
         match self {
@@ -216,19 +222,23 @@ where
 }
 
 #[pin_project(project = HybridFutureProj)]
-enum HybridFuture<A, B> {
-    Left(#[pin] A),
-    Right(#[pin] B),
+enum HybridFuture<WebFuture, GrpcFuture> {
+    Left(#[pin] WebFuture),
+    Right(#[pin] GrpcFuture),
 }
 
-impl<A, B, BodyA, BodyB, ErrorA, ErrorB> Future for HybridFuture<A, B>
+impl<WebFuture, GrpcFuture, WebBody, GrpcBody, WebError, GrpcError> Future
+    for HybridFuture<WebFuture, GrpcFuture>
 where
-    A: Future<Output = Result<Response<BodyA>, ErrorA>>,
-    B: Future<Output = Result<Response<BodyB>, ErrorB>>,
-    ErrorA: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
-    ErrorB: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    WebFuture: Future<Output = Result<Response<WebBody>, WebError>>,
+    GrpcFuture: Future<Output = Result<Response<GrpcBody>, GrpcError>>,
+    WebError: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    GrpcError: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
 {
-    type Output = Result<Response<HybridBody<BodyA, BodyB>>, Box<dyn std::error::Error + Send + Sync + 'static>>;
+    type Output = Result<
+        Response<HybridBody<WebBody, GrpcBody>>,
+        Box<dyn std::error::Error + Send + Sync + 'static>,
+    >;
 
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
         match self.project() {

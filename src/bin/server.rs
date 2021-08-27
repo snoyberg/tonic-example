@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 
 use hyper::service::make_service_fn;
 use tonic::async_trait;
-use tonic_example::echo_server::*;
-use tonic_example::*;
+use tonic_example::echo_server::{Echo, EchoServer};
+use tonic_example::{EchoReply, EchoRequest};
 
 pub struct MyEcho;
 

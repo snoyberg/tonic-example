@@ -138,9 +138,9 @@ where
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         if req.headers().get("content-type").map(|x| x.as_bytes()) == Some(b"application/grpc") {
-            HybridFuture::Right(self.grpc.call(req))
+            HybridFuture::Grpc(self.grpc.call(req))
         } else {
-            HybridFuture::Left(self.web.call(req))
+            HybridFuture::Web(self.web.call(req))
         }
     }
 }
@@ -191,8 +191,8 @@ where
 
 #[pin_project(project = HybridFutureProj)]
 enum HybridFuture<WebFuture, GrpcFuture> {
-    Left(#[pin] WebFuture),
-    Right(#[pin] GrpcFuture),
+    Web(#[pin] WebFuture),
+    Grpc(#[pin] GrpcFuture),
 }
 
 impl<WebFuture, GrpcFuture, WebBody, GrpcBody, WebError, GrpcError> Future
@@ -210,12 +210,12 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
         match self.project() {
-            HybridFutureProj::Left(a) => match a.poll(cx) {
+            HybridFutureProj::Web(a) => match a.poll(cx) {
                 Poll::Ready(Ok(res)) => Poll::Ready(Ok(res.map(HybridBody::Web))),
                 Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
                 Poll::Pending => Poll::Pending,
             },
-            HybridFutureProj::Right(b) => match b.poll(cx) {
+            HybridFutureProj::Grpc(b) => match b.poll(cx) {
                 Poll::Ready(Ok(res)) => Poll::Ready(Ok(res.map(HybridBody::Grpc))),
                 Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
                 Poll::Pending => Poll::Pending,

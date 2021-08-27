@@ -145,9 +145,10 @@ where
     }
 }
 
+#[pin_project(project = HybridBodyProj)]
 enum HybridBody<WebBody, GrpcBody> {
-    Web(WebBody),
-    Grpc(GrpcBody),
+    Web(#[pin] WebBody),
+    Grpc(#[pin] GrpcBody),
 }
 
 impl<WebBody, GrpcBody> HttpBody for HybridBody<WebBody, GrpcBody>
@@ -171,9 +172,9 @@ where
         self: Pin<&mut Self>,
         cx: &mut std::task::Context,
     ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        match self.get_mut() {
-            HybridBody::Web(b) => Pin::new(b).poll_data(cx).map_err(|e| e.into()),
-            HybridBody::Grpc(b) => Pin::new(b).poll_data(cx).map_err(|e| e.into()),
+        match self.project() {
+            HybridBodyProj::Web(b) => b.poll_data(cx).map_err(|e| e.into()),
+            HybridBodyProj::Grpc(b) => b.poll_data(cx).map_err(|e| e.into()),
         }
     }
 
@@ -181,9 +182,9 @@ where
         self: Pin<&mut Self>,
         cx: &mut std::task::Context,
     ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
-        match self.get_mut() {
-            HybridBody::Web(b) => Pin::new(b).poll_trailers(cx).map_err(|e| e.into()),
-            HybridBody::Grpc(b) => Pin::new(b).poll_trailers(cx).map_err(|e| e.into()),
+        match self.project() {
+            HybridBodyProj::Web(b) => b.poll_trailers(cx).map_err(|e| e.into()),
+            HybridBodyProj::Grpc(b) => b.poll_trailers(cx).map_err(|e| e.into()),
         }
     }
 }

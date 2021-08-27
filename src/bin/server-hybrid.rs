@@ -29,14 +29,15 @@ impl Echo for MyEcho {
 async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
 
-    let axum_service =
-        axum::Router::new().route("/", axum::handler::get(|| async { "Hello world!" }));
+    let axum_make_service = axum::Router::new()
+        .route("/", axum::handler::get(|| async { "Hello world!" }))
+        .into_make_service();
 
     let grpc_service = tonic::transport::Server::builder()
         .add_service(EchoServer::new(MyEcho))
         .into_service();
 
-    let hybrid_make_service = hybrid(axum_service.into_make_service(), grpc_service);
+    let hybrid_make_service = hybrid(axum_make_service, grpc_service);
 
     let server = hyper::Server::bind(&addr).serve(hybrid_make_service);
 
@@ -54,9 +55,9 @@ struct HybridMakeService<MakeWeb, Grpc> {
     grpc: Grpc,
 }
 
-impl<T, MakeWeb, Grpc> Service<T> for HybridMakeService<MakeWeb, Grpc>
+impl<ConnInfo, MakeWeb, Grpc> Service<ConnInfo> for HybridMakeService<MakeWeb, Grpc>
 where
-    MakeWeb: Service<T>,
+    MakeWeb: Service<ConnInfo>,
     Grpc: Clone,
 {
     type Response = HybridService<MakeWeb::Response, Grpc>;
@@ -70,9 +71,9 @@ where
         self.make_web.poll_ready(cx)
     }
 
-    fn call(&mut self, req: T) -> Self::Future {
+    fn call(&mut self, conn_info: ConnInfo) -> Self::Future {
         HybridMakeServiceFuture {
-            web_future: self.make_web.call(req),
+            web_future: self.make_web.call(conn_info),
             grpc: Some(self.grpc.clone()),
         }
     }

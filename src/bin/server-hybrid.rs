@@ -79,7 +79,11 @@ where
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
-        Poll::Ready(ready!(self.web.poll_ready(cx)).and(ready!(self.web.poll_ready(cx))))
+        Poll::Ready(if let Err(err) = ready!(self.web.poll_ready(cx)) {
+            Err(err)
+        } else {
+            ready!(self.web.poll_ready(cx))
+        })
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {

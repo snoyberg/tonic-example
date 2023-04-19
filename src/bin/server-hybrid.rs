@@ -30,7 +30,7 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
 
     let axum_make_service = axum::Router::new()
-        .route("/", axum::handler::get(|| async { "Hello world!" }))
+        .route("/", axum::routing::get(|| async { "Hello world!" }))
         .into_make_service();
 
     let grpc_service = tonic::transport::Server::builder()

@@ -1,9 +1,9 @@
 use anyhow::*;
-use clap::Clap;
+use clap::Parser;
 use tonic::transport::Endpoint;
 use tonic_example::{echo_client::EchoClient, EchoRequest};
 
-#[derive(Clap)]
+#[derive(Parser, Debug)]
 struct Opt {
     /// Server to connect to
     #[clap(long, default_value = "http://localhost:3000")]

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1"
+anyhow = "1.0.95"
 axum = "0.6.16"
 clap = { version = "4.5.28", features = ["derive"] }
 hyper = { version = "0.14", features = ["full"] }
